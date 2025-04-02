@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Freepick Image Generator Bot</title>
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+        }
+        .image-card {
+            transition: transform 0.2s ease-in-out;
+        }
+        .image-card:hover {
+            transform: translateY(-5px);
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Header -->
+    <header class="bg-white shadow-sm">
+        <div class="container mx-auto px-4 py-6">
+            <h1 class="text-3xl font-bold text-gray-800 flex items-center">
+                <i class="fas fa-robot text-blue-500 mr-2"></i>
+                Freepick Image Generator Bot
+            </h1>
+            <p class="text-gray-600 mt-2">Generate and download bulk images from Freepick through prompts</p>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-8">
+        <!-- Search Form -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <form id="searchForm" class="space-y-4">
+                <div>
+                    <label for="prompt" class="block text-sm font-medium text-gray-700 mb-2">Enter your prompt</label>
+                    <div class="flex gap-4">
+                        <input type="text" id="prompt" name="prompt" required
+                               class="flex-1 rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
+                               placeholder="e.g., nature landscape, business meeting, etc.">
+                        <button type="submit" 
+                                class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors duration-200">
+                            <i class="fas fa-search mr-2"></i>
+                            Search
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loadingState" class="hidden">
+            <div class="flex items-center justify-center py-12">
+                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+                <span class="ml-3 text-gray-600">Searching for images...</span>
+            </div>
+        </div>
+
+        <!-- Error State -->
+        <div id="errorState" class="hidden">
+            <div class="bg-red-50 border-l-4 border-red-500 p-4 mb-8">
+                <div class="flex">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-exclamation-circle text-red-500"></i>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm text-red-700" id="errorMessage">
+                            An error occurred while fetching images.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results Grid -->
+        <div id="resultsGrid" class="hidden">
+            <!-- Controls -->
+            <div class="flex justify-between items-center mb-6">
+                <div class="flex items-center space-x-4">
+                    <button id="selectAllBtn" 
+                            class="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors duration-200">
+                        <i class="fas fa-check-square mr-2"></i>
+                        Select All
+                    </button>
+                    <span id="selectedCount" class="text-sm text-gray-600">0 images selected</span>
+                </div>
+                <button id="downloadBtn" disabled
+                        class="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i class="fas fa-download mr-2"></i>
+                    Download Selected
+                </button>
+            </div>
+
+            <!-- Images Grid -->
+            <div id="imagesGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                <!-- Images will be dynamically inserted here -->
+            </div>
+        </div>
+
+        <!-- No Results State -->
+        <div id="noResultsState" class="hidden">
+            <div class="text-center py-12">
+                <i class="fas fa-search text-gray-400 text-4xl mb-4"></i>
+                <p class="text-gray-600">No images found for your search. Try a different prompt.</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t mt-auto">
+        <div class="container mx-auto px-4 py-6">
+            <p class="text-center text-gray-600 text-sm">
+                Images provided by Freepick. Use responsibly and respect image licensing terms.
+            </p>
+        </div>
+    </footer>
+
+    <script>
+        // API endpoints
+        const API_ENDPOINTS = {
+            SEARCH: '/api/search',
+            DOWNLOAD: '/api/download'
+        };
+
+        // DOM Elements
+        const searchForm = document.getElementById('searchForm');
+        const promptInput = document.getElementById('prompt');
+        const loadingState = document.getElementById('loadingState');
+        const errorState = document.getElementById('errorState');
+        const errorMessage = document.getElementById('errorMessage');
+        const resultsGrid = document.getElementById('resultsGrid');
+        const imagesGrid = document.getElementById('imagesGrid');
+        const noResultsState = document.getElementById('noResultsState');
+        const selectAllBtn = document.getElementById('selectAllBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const selectedCount = document.getElementById('selectedCount');
+
+        // State
+        let selectedImages = new Set();
+        let allImages = [];
+        let isAllSelected = false;
+
+        // Helper Functions
+        function showLoading() {
+            loadingState.classList.remove('hidden');
+            errorState.classList.add('hidden');
+            resultsGrid.classList.add('hidden');
+            noResultsState.classList.add('hidden');
+        }
+
+        function showError(message) {
+            loadingState.classList.add('hidden');
+            errorState.classList.remove('hidden');
+            resultsGrid.classList.add('hidden');
+            noResultsState.classList.add('hidden');
+            errorMessage.textContent = message;
+        }
+
+        function showResults() {
+            loadingState.classList.add('hidden');
+            errorState.classList.add('hidden');
+            resultsGrid.classList.remove('hidden');
+            noResultsState.classList.add('hidden');
+        }
+
+        function showNoResults() {
+            loadingState.classList.add('hidden');
+            errorState.classList.add('hidden');
+            resultsGrid.classList.add('hidden');
+            noResultsState.classList.remove('hidden');
+        }
+
+        function updateSelectedCount() {
+            selectedCount.textContent = `${selectedImages.size} images selected`;
+            downloadBtn.disabled = selectedImages.size === 0;
+        }
+
+        // API Functions
+        async function searchImages(query) {
+            const response = await fetch(`${API_ENDPOINTS.SEARCH}?query=${encodeURIComponent(query)}`);
+            if (!response.ok) {
+                throw new Error('Failed to fetch images');
+            }
+            const data = await response.json();
+            return data.results;
+        }
+
+        async function downloadImages(images) {
+            const response = await fetch(API_ENDPOINTS.DOWNLOAD, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ images }),
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to download images');
+            }
+
+            // Create a blob from the response and trigger download
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `freepick-images-${Date.now()}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+        }
+
+        // Event Handlers
+        searchForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const prompt = promptInput.value.trim();
+            
+            if (!prompt) {
+                showError('Please enter a search prompt');
+                return;
+            }
+
+            showLoading();
+            try {
+                const images = await searchImages(prompt);
+                allImages = images;
+                
+                if (images.length === 0) {
+                    showNoResults();
+                    return;
+                }
+
+                // Clear previous results
+                imagesGrid.innerHTML = '';
+                selectedImages.clear();
+                updateSelectedCount();
+
+                // Add new images
+                images.forEach(image => {
+                    const imageCard = document.createElement('div');
+                    imageCard.className = 'image-card bg-white rounded-lg shadow-md overflow-hidden';
+                    imageCard.innerHTML = `
+                        <div class="relative group">
+                            <div class="aspect-w-4 aspect-h-3">
+                                <img src="${image.thumbnail}" 
+                                     alt="${image.title}"
+                                     class="w-full h-64 object-cover transition-transform duration-200 group-hover:scale-105">
+                            </div>
+                            <div class="absolute top-2 left-2">
+                                <input type="checkbox" 
+                                       data-id="${image.id}"
+                                       class="image-checkbox h-5 w-5 rounded border-gray-300 text-blue-500 focus:ring-blue-500">
+                            </div>
+                            <div class="absolute inset-0 bg-black opacity-0 group-hover:opacity-20 transition-opacity duration-200"></div>
+                        </div>
+                        <div class="p-4">
+                            <h3 class="text-lg font-semibold text-gray-800 mb-1">${image.title}</h3>
+                            <p class="text-sm text-gray-600">${image.description}</p>
+                        </div>
+                    `;
+
+                    const checkbox = imageCard.querySelector('.image-checkbox');
+                    checkbox.addEventListener('change', (e) => {
+                        if (e.target.checked) {
+                            selectedImages.add(image.id);
+                        } else {
+                            selectedImages.delete(image.id);
+                        }
+                        updateSelectedCount();
+                    });
+
+                    imagesGrid.appendChild(imageCard);
+                });
+
+                showResults();
+            } catch (error) {
+                console.error('Search error:', error);
+                showError('Failed to fetch images. Please try again.');
+            }
+        });
+
+        selectAllBtn.addEventListener('click', () => {
+            isAllSelected = !isAllSelected;
+            const checkboxes = document.querySelectorAll('.image-checkbox');
+            
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = isAllSelected;
+                const imageId = checkbox.dataset.id;
+                
+                if (isAllSelected) {
+                    selectedImages.add(imageId);
+                } else {
+                    selectedImages.delete(imageId);
+                }
+            });
+
+            selectAllBtn.innerHTML = `
+                <i class="fas fa-${isAllSelected ? 'times' : 'check'}-square mr-2"></i>
+                ${isAllSelected ? 'Deselect All' : 'Select All'}
+            `;
+            
+            updateSelectedCount();
+        });
+
+        downloadBtn.addEventListener('click', async () => {
+            if (selectedImages.size === 0) return;
+
+            const selectedImageData = allImages.filter(img => selectedImages.has(img.id));
+            
+            try {
+                showLoading();
+                await downloadImages(selectedImageData);
+                showResults();
+            } catch (error) {
+                console.error('Download error:', error);
+                showError('Failed to download images. Please try again.');
+            }
+        });
+
+        // Initialize
+        updateSelectedCount();
+    </script>
+</body>
+</html>
